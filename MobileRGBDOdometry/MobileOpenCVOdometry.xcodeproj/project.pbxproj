@@ -10,6 +10,7 @@
 		01FAFAF21964A14700BF040D /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 01FAFAF11964A14700BF040D /* QuartzCore.framework */; };
 		431C6F5318455ABD00EDB38B /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 431C6F5218455ABD00EDB38B /* AVFoundation.framework */; };
 		435F22551968CCD600731151 /* Structure.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 435F22541968CCD600731151 /* Structure.framework */; };
+		435F22571968D35900731151 /* opencv2.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 435F22561968D35900731151 /* opencv2.framework */; };
 		6F1239081862A59D00BD1D7A /* Accelerate.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6F1239071862A59D00BD1D7A /* Accelerate.framework */; };
 		6F12390A1862A5D300BD1D7A /* ImageIO.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6F1239091862A5D300BD1D7A /* ImageIO.framework */; };
 		6F2B4EDB1865324D00403B8C /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6F7C0CC217F0EA0500692EC1 /* CoreGraphics.framework */; };
@@ -33,6 +34,7 @@
 		01FAFAF11964A14700BF040D /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
 		431C6F5218455ABD00EDB38B /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
 		435F22541968CCD600731151 /* Structure.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = Structure.framework; sourceTree = "<group>"; };
+		435F22561968D35900731151 /* opencv2.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; path = opencv2.framework; sourceTree = "<group>"; };
 		6F1239071862A59D00BD1D7A /* Accelerate.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Accelerate.framework; path = System/Library/Frameworks/Accelerate.framework; sourceTree = SDKROOT; };
 		6F1239091862A5D300BD1D7A /* ImageIO.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ImageIO.framework; path = System/Library/Frameworks/ImageIO.framework; sourceTree = SDKROOT; };
 		6F2B4EDC1865325D00403B8C /* OpenGLES.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = OpenGLES.framework; path = System/Library/Frameworks/OpenGLES.framework; sourceTree = SDKROOT; };
@@ -62,14 +64,15 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				6F1239081862A59D00BD1D7A /* Accelerate.framework in Frameworks */,
 				01FAFAF21964A14700BF040D /* QuartzCore.framework in Frameworks */,
 				6F7C0CC117F0EA0500692EC1 /* Foundation.framework in Frameworks */,
 				431C6F5318455ABD00EDB38B /* AVFoundation.framework in Frameworks */,
 				435F22551968CCD600731151 /* Structure.framework in Frameworks */,
-				6F1239081862A59D00BD1D7A /* Accelerate.framework in Frameworks */,
 				6F2B4EDD1865325D00403B8C /* OpenGLES.framework in Frameworks */,
 				6F12390A1862A5D300BD1D7A /* ImageIO.framework in Frameworks */,
 				6F2B4EE1186532A500403B8C /* CoreMedia.framework in Frameworks */,
+				435F22571968D35900731151 /* opencv2.framework in Frameworks */,
 				6F2B4EDB1865324D00403B8C /* CoreGraphics.framework in Frameworks */,
 				6F2B4EDF1865326B00403B8C /* CoreImage.framework in Frameworks */,
 				6F2B4EE3186532CE00403B8C /* CoreVideo.framework in Frameworks */,
@@ -101,6 +104,7 @@
 		6F7C0CBF17F0EA0500692EC1 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				435F22561968D35900731151 /* opencv2.framework */,
 				435F22541968CCD600731151 /* Structure.framework */,
 				01FAFAF11964A14700BF040D /* QuartzCore.framework */,
 				6F7C0CC017F0EA0500692EC1 /* Foundation.framework */,

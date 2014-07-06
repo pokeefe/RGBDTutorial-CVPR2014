@@ -10,6 +10,10 @@
 #import <AVFoundation/AVFoundation.h>
 #import <Structure/StructureSLAM.h>
 
+#include <iostream>
+#include <opencv2/rgbd.hpp>
+#include <opencv2/imgproc.hpp>
+
 #define CONNECT_TEXT @"Please Connect Structure Sensor"
 #define CHARGE_TEXT @"Please Charge Structure Sensor"
 
@@ -33,6 +37,13 @@
     
     UILabel* _statusLabel;
     
+    cv::Odometry* odometry;
+    
+    cv::Ptr<cv::OdometryFrame> prevOdometryFrame;
+    cv::Ptr<cv::OdometryFrame> currOdometryFrame;
+
+    std::vector<cv::Mat> allOdometryPoses;
+
 }
 
 - (BOOL)connectAndStartStreaming;
@@ -40,6 +51,8 @@
 - (void)renderNormalsFrame:(STDepthFrame*)normalsFrame;
 - (void)renderColorFrame:(CMSampleBufferRef)sampleBuffer;
 - (void)startAVCaptureSession;
+
+- (void)setupOpenCVOdometry;
 
 @end
 
@@ -97,6 +110,8 @@
     #if !TARGET_IPHONE_SIMULATOR
     [self startAVCaptureSession];
     #endif
+    
+    [self setupOpenCVOdometry];
     
     // Sample usage of wireless debugging API
 //    NSError* error = nil;
@@ -232,6 +247,118 @@
     _statusLabel.hidden = true;
 }
 
+- (void)setupOpenCVOdometry
+{
+    
+    prevOdometryFrame = cv::Ptr<cv::OdometryFrame>(new cv::OdometryFrame());
+    currOdometryFrame = cv::Ptr<cv::OdometryFrame>(new cv::OdometryFrame());
+    
+    cv::Mat1f cameraMatrix (3,3); cv::setIdentity(cameraMatrix);
+
+    //TODO: Replace with device specific intrinsics
+
+    //QVGA iOS iPad Air
+    cameraMatrix(0,0) = 288.0f;
+    cameraMatrix(1,1) = 288.0f;
+    cameraMatrix(0,2) = 161.5f;
+    cameraMatrix(1,2) = 121.5f;
+    
+    // OpenCV odometry ignores lens distortion
+    
+    float minDepth = 0.3f;
+    float maxDepth = 4.f;
+    float maxDepthDiff = 0.07f;
+    
+    std::vector<int> iterCounts = cv::Mat(cv::Vec3i(7,7,10));
+    std::vector<float> minGradientMagnitudes = cv::Mat(cv::Vec3f(10,10,10));
+    
+    float maxPointsPart = cv::RgbdOdometry::DEFAULT_MAX_POINTS_PART();
+    
+    
+    odometry = new cv::RgbdOdometry (cameraMatrix, minDepth, maxDepth, maxDepthDiff, iterCounts, minGradientMagnitudes, maxPointsPart,
+                                     cv::Odometry::RIGID_BODY_MOTION);
+    
+    
+}
+
+void convertBGRASampleBufferToRGB (CMSampleBufferRef sampleBuffer, cv::Mat& dest)
+{
+    
+    CVImageBufferRef pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer);
+    
+    CVPixelBufferLockBaseAddress(pixelBuffer, 0);
+    
+    size_t width = CVPixelBufferGetWidth(pixelBuffer);
+    size_t height = CVPixelBufferGetHeight(pixelBuffer);
+    
+    dest.create((int)height, (int)width, CV_8UC3);
+    
+    unsigned char* ptr = (unsigned char*) CVPixelBufferGetBaseAddressOfPlane(pixelBuffer, 0);
+    
+    // Use NEON to convert from BGRA to RGB, or use Accelerate in the case that we're on simulator
+#ifdef __ARM_NEON__
+    
+    uint8_t* sourcePtr = (uint8_t*)ptr;
+    uint8_t* destPtr = (uint8_t*)dest.data;
+    
+    const int numPixels = (int)(width*height);
+    
+    int pixel = 0;
+    for (; pixel < numPixels; pixel += 16)
+    {
+        
+        uint8x16x4_t sourcePixelsBGRA = vld4q_u8((const unsigned char*)sourcePtr);
+        uint8x16x3_t sourceRGB;
+        sourceRGB.val[0] = sourcePixelsBGRA.val[2];
+        sourceRGB.val[1] = sourcePixelsBGRA.val[1];
+        sourceRGB.val[2] = sourcePixelsBGRA.val[0];
+        vst3q_u8((unsigned char *)destPtr, sourceRGB);
+        
+        sourcePtr += 16*4;
+        destPtr += 16*3;
+        
+    }
+    
+    // Convert any leftover pixels (15 or less would remain, if any)
+    for (; pixel < numPixels; pixel++) {
+        uint8_t* sourceBGRAPixel = sourcePtr;
+        uint8_t* destRGBPixel = destPtr;
+        
+        destRGBPixel[0] = sourceBGRAPixel[2];
+        destRGBPixel[1] = sourceBGRAPixel[1];
+        destRGBPixel[2] = sourceBGRAPixel[0];
+        
+        sourcePtr += 4;
+        destPtr += 3;
+    }
+    
+#else
+    
+    vImage_Buffer src;
+    src.width = width;
+    src.height = height;
+    src.data = ptr;
+    src.rowBytes = CVPixelBufferGetBytesPerRow(pixelBuffer);
+    
+    vImage_Buffer destImage;
+    destImage.width = width;
+    destImage.height = height;
+    destImage.rowBytes = width*3;
+    destImage.data = dest.data;
+    
+    vImage_Error err;
+    err = vImageConvert_BGRA8888toRGB888(&src, &destImage, kvImageNoFlags);
+    if(err != kvImageNoError){
+        NSLog(@"Error in Pixel Copy vImage_error %ld", err);
+    }
+    
+    
+#endif
+    
+    
+    CVPixelBufferUnlockBaseAddress(pixelBuffer, 0);
+}
+
 
 #pragma mark -
 #pragma mark Structure SDK Delegate Methods
@@ -282,6 +409,64 @@
 - (void)sensorDidOutputSynchronizedDepthFrame:(STDepthFrame*)depthFrame
                                 andColorFrame:(CMSampleBufferRef)sampleBuffer
 {
+    
+    
+    // Fill from STDepthFrame
+    cv::Mat depth(depthFrame->height, depthFrame->width, CV_16U, depthFrame->data);
+    
+    // scale depth to meters
+    cv::Mat depthMeters;
+    depth.convertTo(depthMeters, CV_32FC1, 1.f/1000.f);
+    
+    
+    depthMeters.setTo(std::numeric_limits<float>::quiet_NaN(), depth == 0);
+    depth = depthMeters;
+    
+    
+    // Fill from CMSampleBuffer
+    cv::Mat vgaImage;
+    convertBGRASampleBufferToRGB(sampleBuffer, vgaImage);
+    
+    //TODO: The conversion to grayscale and the decimation should all be done at once with NEON instead of separated.
+    // A convertBGRASampleBufferToDecimatedGrayscale function should be used instead of convertBGRASampleBufferToRGB
+    // and then these calls.
+    
+    cv::Mat vgaGray;
+    cv::cvtColor(vgaImage, vgaGray, cv::COLOR_BGR2GRAY);
+    
+    cv::Mat1b qvgaGray;
+    cv::resize(vgaGray, qvgaGray, cv::Size(320, 240));
+    
+    currOdometryFrame->image = qvgaGray;
+    currOdometryFrame->depth = depth;
+    
+    // Compute the delta pose between this frame and the last one
+    cv::Mat deltaRt;
+    if(!allOdometryPoses.empty())
+    {
+        bool res = odometry->compute(currOdometryFrame, prevOdometryFrame, deltaRt);
+        
+        if(!res)
+            deltaRt = cv::Mat::eye(4,4,CV_64FC1);
+    }
+    
+    if( allOdometryPoses.empty() )
+    {
+        allOdometryPoses.push_back(cv::Mat::eye(4,4,CV_64FC1));
+    }
+    else
+    {
+        cv::Mat& prevRt = *allOdometryPoses.rbegin();
+        allOdometryPoses.push_back( prevRt * deltaRt );
+        std::cout << "Current pose: " << *allOdometryPoses.rbegin() << std::endl;
+        
+    }
+    
+    if(!prevOdometryFrame.empty())
+        prevOdometryFrame->release();
+    std::swap(prevOdometryFrame, currOdometryFrame);
+    
+    
     [self renderDepthFrame:depthFrame];
     [self renderNormalsFrame:depthFrame];
     [self renderColorFrame:sampleBuffer];
