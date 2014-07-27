@@ -29,7 +29,11 @@
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //
 
+#if CV_VERSION_MAJOR == 3
 #include "opencv2/core.hpp"
+#else
+#include "opencv2/core/core.hpp"
+#endif
 
 namespace oc {
 
@@ -76,8 +80,9 @@ namespace oc {
         cv::Matx33f _registeredCameraMatrix;
         cv::Vec<float, 5> _registeredDistCoeffs;
 
-        cv::Matx44f _rbtRgb2Depth;
+        cv::Matx44f _rbtRgb2Depth, _projection;
 
+        bool _has_distortion;
     };
 
 }

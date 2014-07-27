@@ -34,8 +34,13 @@
 #include <iostream>
 #include "Registration.h"
 
+#if CV_VERSION_MAJOR == 3
 #include "opencv2/calib3d.hpp"
 #include "opencv2/rgbd.hpp"
+#else
+#include "opencv2/calib3d/calib3d.hpp"
+#include "opencv2/rgbd/rgbd.hpp"
+#endif
 
 using namespace cv;
 
@@ -55,6 +60,30 @@ namespace oc {
 
         _rbtRgb2Depth = Rt;
 
+        // Figure out whether we'll have to apply a distortion
+        _has_distortion = false;
+        for(unsigned char i = 0; i < 5; ++i)
+            _has_distortion |= (unregisteredDistCoeffs(i) != 0);
+
+        // A point (i,j,1) will have to be converted to 3d first, by multiplying it by K.inv()
+        // It will then be transformed by _rbtRgb2Depth
+        cv::Matx44f K = cv::Matx44f::zeros();
+        for(unsigned char j = 0; j < 3; ++j)
+            for(unsigned char i = 0; i < 3; ++i)
+                K(j, i) = _unregisteredCameraMatrix(j, i);
+        K(3, 3) = 1;
+
+        if (_has_distortion)
+            _projection = _rbtRgb2Depth * K.inv();
+        else {
+            // In case there is no distortion, projecting it is just applying _registeredCameraMatrix
+            _projection = cv::Matx44f::zeros();
+            for(unsigned char j = 0; j < 3; ++j)
+                for(unsigned char i = 0; i < 3; ++i)
+                    _projection(j, i) = _registeredCameraMatrix(j, i);
+            _projection(3, 3) = 1;
+            _projection = _projection * _rbtRgb2Depth * K.inv();
+        }
     }
 
     void Registration::registerDepthToColor(const cv::Mat_<uint16_t>& unregisteredDepthMillimeters,
@@ -64,53 +93,67 @@ namespace oc {
     {
 
         // Create out output Mat filled with an initial value of 0
-        registeredDepth.create(outputImagePlaneSize);
-        registeredDepth.setTo(0);
+        registeredDepth = cv::Mat_<uint16_t>::zeros(outputImagePlaneSize);
 
         cv::Rect registeredDepthBounds(cv::Point(), registeredDepth.size());
 
-        Mat3f cloud, transformedCloud;
+        Mat_<cv::Point3f> transformedCloud;
+        {
+            Mat_<cv::Point3f> point_tmp(outputImagePlaneSize);
+            for(size_t j = 0; j < point_tmp.rows; ++j) {
+                const uint16_t *depth = unregisteredDepthMillimeters[j];
 
-        // Unproject the points to obtain an XYZ cloud
-        // Output will be scaled to meters as floats
-        depthTo3d(unregisteredDepthMillimeters, _unregisteredCameraMatrix, cloud);
+                cv::Point3f *point = point_tmp[j];
+                for(size_t i = 0; i < point_tmp.cols; ++i, ++depth, ++point) {
+                    float rescaled_depth = float(*depth) / 1000.0;
+                    point->x = i * rescaled_depth;
+                    point->y = j * rescaled_depth;
+                    point->z = rescaled_depth;
+                }
+            }
 
-        // Transform the cloud by the rbt between our cameras
-        perspectiveTransform(cloud, transformedCloud, _rbtRgb2Depth);
-
+            perspectiveTransform(point_tmp, transformedCloud, _projection);
+        }
 
         std::vector<Point2f> outputProjectedPoints(transformedCloud.cols);
 
         for( int y = 0; y < transformedCloud.rows; y++ )
         {
-
-            // Project an entire row of points. This has high overhead, so doing this for each point would be slow.
-            // Doing this for the entire image at once would require more memory.
-            projectPoints(transformedCloud.cv::Mat::row(y),
-                          Mat::zeros(3, 1, CV_32FC1),
-                          Mat::zeros(3, 1, CV_32FC1),
+            if (_has_distortion) {
+                // Project an entire row of points. This has high overhead, so doing this for each point would be slow.
+                // Doing this for the entire image at once would require more memory.
+                projectPoints(transformedCloud.row(y),
+                          cv::Vec3f(0,0,0),
+                          cv::Vec3f(0,0,0),
                           _registeredCameraMatrix,
                           _registeredDistCoeffs,
                           outputProjectedPoints);
+            } else {
+                // With no distortion, we can project the points right up
+                cv::Point2f *point2d = &outputProjectedPoints[0],
+                            *point2d_end = point2d + outputProjectedPoints.size();
+                cv::Point3f *point3d = transformedCloud[y];
+                for( ; point2d < point2d_end; ++point2d, ++point3d ) {
+                    point2d->x = point3d->x / point3d->z;
+                    point2d->y = point3d->y / point3d->z;
+                }
+            }
+            cv::Point2f *outputProjectedPoint = &outputProjectedPoints[0];
+            cv::Point3f *p = transformedCloud[y], *p_end = p + transformedCloud.cols;
 
-            Point3f* transformedCloudRowPtr = (Point3f*)transformedCloud.ptr(y);
-
-            for( int x = 0; x < transformedCloud.cols; x++ )
+            for( ; p < p_end; ++outputProjectedPoint, ++p )
             {
-
-                Point3f& p = (*transformedCloudRowPtr++);
-
                 // Go back to millimeters, since that's what our output will be
-                float cloudDepthMillimeters = 1e3*p.z;
+                float cloudDepthMillimeters = 1e3*p->z;
 
                 //Cast to integer pixel location
-                Point2i projectedPixelLocation = outputProjectedPoints[x];
+                Point2i projectedPixelLocation = *outputProjectedPoint;
 
                 // Ensure that the projected point is actually contained in our output image
                 if (!registeredDepthBounds.contains(projectedPixelLocation))
                     continue;
 
-                uint16_t& outputDepthLocation = registeredDepth.at<uint16_t>(projectedPixelLocation.y, projectedPixelLocation.x);
+                uint16_t& outputDepthLocation = registeredDepth(projectedPixelLocation.y, projectedPixelLocation.x);
 
 
                 // Occlusion check
@@ -136,7 +179,7 @@ namespace oc {
                         if (!registeredDepthBounds.contains(dilatedCoordinates))
                             continue;
 
-                        uint16_t& outputDepthLocation = registeredDepth.at<uint16_t>(dilatedCoordinates.y, dilatedCoordinates.x);
+                        uint16_t& outputDepthLocation = registeredDepth(dilatedCoordinates.y, dilatedCoordinates.x);
 
                         // Occlusion check
                         if ( outputDepthLocation == 0 || (outputDepthLocation > cloudDepthMillimeters) ) {
