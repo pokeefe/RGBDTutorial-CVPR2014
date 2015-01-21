@@ -7,6 +7,7 @@
 
 #import "ViewController.h"
 
+#import <Accelerate/Accelerate.h>
 #import <AVFoundation/AVFoundation.h>
 #import <Structure/StructureSLAM.h>
 
